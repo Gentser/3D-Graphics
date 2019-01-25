@@ -1,0 +1,163 @@
+Серия youtube видео по OpenGL:
+https://www.youtube.com/watch?v=OR4fNpBjmq8&list=PLlrATfBNZ98foTJPJ_Ev03o2oq3-GGOS2&index=2
+https://www.youtube.com/watch?v=YKFYtekgnP8&list=PLSZByXJKN9MMxU-PAXMU_b_1dy-G_mzPk&index=6
+
+UV-развертка:
+https://www.youtube.com/watch?v=5eeC_wB6_WU&index=2&list=PLSZByXJKN9MMxU-PAXMU_b_1dy-G_mzPk&t=136s
+
+Properties/C_C++/Preprocessor -> добавить в определения GLEW_STATIC
+
+glfw - библиотека кросплатформенного интерфейса для создания и управления окнами 
+glew - библиотека, дающая кросплатформенный доступ к библиотекам, уже имеющимся в наших драйверах видеокарты (нужно подключить первее всех библиотек, использующих OpenGL)
+
+OpenGL is a state machine!
+
+docs.gl - супер документация по всем функциям OpenGL!!!!!
+
+stride - кол-во байт, которое занимает одна вершина (1 vertex) - координаты+текстурн.коорд.+цвет
+
+Если не написали свой шейдер - некоторые GPU предоставляют шейдер по умолчанию (рисование белым цветом)
+
+Vertex shader - определить, где должен находиться объект в экранных координатах
+Fragment shader - определить цвет каждого пикселя нашего объекта
+
+Критичные операции лучше делать в vertex shader, а результат передавать в fragment shader (т.к. последий вызывается для каждого пикселя)
+
+F12 - перейти к объявлению переменной/функции
+
+"char* message = (char*)alloca(length * sizeof(char));"  is equal to "char message[length]" - динамическое выделение памяти на стеке
+
+ctrl+h - функционал find & replace
+
+GL_ELEMENT_ARRAY_BUFFER - слот для index buffer object
+GL_ARRAY_BUFFER - слот для обычных данных (координат вершин, нормалей, текстур и т.п.)
+
+----------------------- Обработка ошибок -----------------------
+
+static void GLClearError() 
+{	while (glGetError() != GL_NO_ERROR);	}
+
+static void GLCheckError() 
+{	
+	while (GLenum error = glGetError() )
+		std::cout << "[OpenGL error] (" << error << ")" << std::endl;
+}
+
+// После этого до вызова необходимой функции делаем GLClearError(), а после - GLCheckError()
+// В заголовочном файле OpenGL (glew.h) можем найти код ошибки - но искать нужно в hex.
+
+// Либо:
+#define ASSERT(x) if (!(x)) __debugbreak();		// остановка отладчика при невыполнении условия; __debugbreak() функция зависит от компилятора
+
+// Изменим функцию проверки ошибок:
+static bool GLLogCall() 
+{	
+	while (GLenum error = glGetError() )
+	{
+		std::cout << "[OpenGL error] (" << error << ")" << std::endl;
+		return false;
+	}
+	return true;
+}
+
+// После этого можем делать так:
+GLClearError()
+glDrawElements(GL_TRIANGLES, 6, GL_INT, nullptr);	// если indeces были unsigned int, То появится ошибка
+ASSERT( GLLogCall() );	// при отладке здесь остановится дебагер
+
+// то есть УСТАНОВИЛИ ТОЧКУ ОСТАНОВА ПРОГРАММНО!!!
+
+// А теперь еще круче - напишем макрос, который делает все это автоматически за нас:
+#define GLCall(x) GLClearError();\
+	x;\
+	ASSERT(GLLogCall());
+// Знак '\' - игнорироване перевода строки (не ставь пробел после него!!!)
+
+
+// ЕЩЕ КРУЧЕ!
+
+static bool GLLogCall(const char* function, const char* file, int line)
+{
+	while (GLenum error = glGetError())
+	{
+		std::cout << "[OpenGL error] (" << error << "): " << function <<
+			" " << file << " : " << line << std::endl;
+		return false;
+	}
+	return true;
+}
+
+#define ASSERT(x) if (!(x)) __debugbreak();		
+#define GLCall(x) GLClearError();\
+	x;\
+	ASSERT(GLLogCall(#x, __FILE__, __LINE__));	// #x - переводит имя функции в строку; остальное - макросы (кросплатформ.)
+
+
+
+-------------- Uniform-переменные ----------------------
+
+После создания шейдерной программы, мы можем получить location uniform-переменной, а затем заполнить ее данными
+
+Uniform-переменные устанавливаются на каждый вызов функции draw, и не могут быть изменены во время отрисовки
+
+
+--------------- VAO -------------------- !!!!
+
+// Vertex Array Object - хранит взаимосвязь между VertexBufferObject и установленными AttributePointer
+// Цель VAO - связать буфер (содержащий данные) с определенным layout'ом
+
+unsigned int vao;
+GLCall(glGenVertexArrays(1, &vao));
+GLCall(glBindVertexArray(vao));
+
+unsigned int buffer;
+GLCall(glGenBuffers(1, &buffer));
+GLCall(glBindBuffer(GL_ARRAY_BUFFER, buffer));
+GLCall(glBufferData(GL_ARRAY_BUFFER, sizeof(positions), positions, GL_STATIC_DRAW));
+
+// Создали vao и vbo - ничего не линковалось
+
+GLCall(glEnableVertexAttribArray(0));	
+GLCall(glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 2, 0));	// эта строчка связывает vbo с vao
+// Индекс 0 текущего vao привязывается к текущему привязанному vbo!!!
+
+------------------------------------------------
+
+
+Делать отличия между переменными Size и Count (кол-во байт и кол-во элементов)
+
+Material = Shader + Data (все uniform переменные и т.п.)
+
+Текстурных слотов несколько!!! И мы можем использовать любые из них - надо лишь указать это в glActiveTexture(GL_TEXTURE0) 
+
+------------------------ ТЕкстуры -------------------------
+// Текстуры из шейдеров управляются с помощью sampler'ов - целочисленых значений int, указывающих на слот, к которому привязана стурктура
+texture.Bind(2);
+shader.SetUniform1i("u_Texture", 2)
+
+// или
+
+texture.Bind();
+shader.SetUniform1i("u_Texture", 0)
+
+
+---------------------- Blending ----------------------
+
+GLCall(glEnable(GL_BLEND));
+GLCall(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+
+glBlendFunc(src, destination);	// src и destination - некоторые числа, на которые будут умножены значения 
+// из источника (src - output from fragment shader) и destination (уже существующие данные в буфере)
+
+
+----------------------- MVP -------------------------
+
+// Сдвинуть камеру влево на 10 == Сдвинуть все объекты мира вправо на 10
+
+glm::mat4 proj = glm::ortho(-2.0f, 2.0f, -1.5f, 1.5f, -1.0f, 1.0f);
+glm::mat4 view = glm::translate(glm::mat4(1.0f), glm::vec3(-2.0f, 0.0f, 0.0f));	// свдинули камеру на 2 вправо
+glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(1.0f, 1.0f, 0.0f));	// свдинули модель на (1,1) вправо вверх
+
+glm::mat4 mvp = proj * view * model;
+
+//shader.SetUniform4f("u_Color", r, 0.3f, 0.8f, 1.0f);
